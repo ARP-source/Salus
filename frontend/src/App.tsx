@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useAudioCapture } from './hooks/useAudioCapture';
-import { DispatchResponse } from './types/dispatch';
+import type { DispatchResponse } from './types/dispatch';
 import './index.css';
 
 function App() {
