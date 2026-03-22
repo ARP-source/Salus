@@ -64,7 +64,7 @@ function App() {
                 </button>
               ) : (
                 <button
-                  onClick={stopRecording}
+                  onClick={() => { stopRecording(); sendMessage({ type: 'stop' }); }}
                   className="btn btn-end"
                 >
                   End Call
@@ -130,9 +130,9 @@ function App() {
               <span className="label-small">Simulation Scenarios</span>
               <span className="tag tag-hackathon">HACKATHON MODE</span>
             </div>
-            <button className="btn-sim">&#9654; EN - Cardiac Arrest</button>
-            <button className="btn-sim">&#9654; ES - Structure Fire</button>
-            <button className="btn-sim">&#9654; HI - Road Collision</button>
+            <button className="btn-sim" onClick={() => sendMessage({type: 'simulate', data: 'en_cardiac_arrest.wav'})}>&#9654; EN - Cardiac Arrest</button>
+            <button className="btn-sim" onClick={() => sendMessage({type: 'simulate', data: 'es_structure_fire.wav'})}>&#9654; ES - Structure Fire</button>
+            <button className="btn-sim" onClick={() => sendMessage({type: 'simulate', data: 'hi_road_collision.wav'})}>&#9654; HI - Road Collision</button>
           </div>
         </section>
       </main>

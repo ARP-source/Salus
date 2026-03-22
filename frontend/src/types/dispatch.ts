@@ -16,7 +16,7 @@ export interface DispatchResponse {
 }
 
 export interface WebsocketMessage {
-    type: 'audio' | 'start' | 'stop' | 'dispatch_update' | 'error';
+    type: 'audio' | 'start' | 'stop' | 'dispatch_update' | 'error' | 'simulate';
     data?: any;
     error?: string;
 }
