@@ -310,7 +310,7 @@ async def run_dispatch_llm(transcript: str, audio_analysis: dict, history: list)
             model="gpt-oss-120b",
             messages=messages,
             temperature=0.3,
-            max_tokens=1000,
+            max_tokens=500,  # Reduced for faster response
         )
         raw = (resp.choices[0].message.content or "").strip()
         print(f"[LLM] Got response: {raw[:300]}...")

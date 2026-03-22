@@ -7,9 +7,9 @@ interface AudioCaptureCallbacks {
 
 // ── VAD config ────────────────────────────────────────────────────────────────
 const SAMPLE_RATE       = 16000;
-const SILENCE_RMS       = 0.005;   // lower threshold = capture more audio (was 0.012)
-const SILENCE_MS        = 2000;    // wait longer before utterance_end (was 1300)
-const MIN_SPEECH_MS     = 200;     // shorter minimum to not miss quick speech (was 400)
+const SILENCE_RMS       = 0.008;   // balanced threshold
+const SILENCE_MS        = 700;     // 700ms silence = utterance end (fast response)
+const MIN_SPEECH_MS     = 150;     // capture short utterances
 const FRAME_SIZE        = 2048;    // samples per processing frame
 
 // ── int16 PCM helpers ─────────────────────────────────────────────────────────

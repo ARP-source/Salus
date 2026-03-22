@@ -78,6 +78,7 @@ async def process_utterance(ws, session: CallSession, pcm_bytes: bytes):
         print(f"[ASR] Got: {transcript_chunk!r}")
         session.full_transcript = (session.full_transcript + " " + transcript_chunk).strip()
 
+        # Send transcript immediately
         await ws.send_text(json.dumps({
             "type": "transcript_update",
             "data": transcript_chunk
@@ -85,12 +86,12 @@ async def process_utterance(ws, session: CallSession, pcm_bytes: bytes):
 
         session.history.append({"role": "user", "content": transcript_chunk})
 
-        # Fire dispatch intelligence update in background
-        asyncio.create_task(update_dispatch_intelligence(ws, session.full_transcript, list(session.history)))
-
-        # Get dispatcher response text + dispatch data together
+        # Single LLM call - no duplicate
         print("[LLM] Generating dispatcher response...")
         dispatch_data = await run_dispatch_llm(session.full_transcript, {}, session.history)
+
+        # Send dispatch update
+        await ws.send_text(json.dumps({"type": "dispatch_update", "data": dispatch_data}))
 
         response_text = dispatch_data.get("dispatcher_response_text", "")
         if not response_text:
@@ -98,6 +99,7 @@ async def process_utterance(ws, session: CallSession, pcm_bytes: bytes):
 
         session.history.append({"role": "assistant", "content": response_text})
 
+        # TTS - generate voice response
         print(f"[TTS] Synthesizing: {response_text!r}")
         voice_bytes = await synthesize_dispatcher_voice(response_text)
         if voice_bytes:
@@ -114,12 +116,6 @@ async def process_utterance(ws, session: CallSession, pcm_bytes: bytes):
         session.processing = False
 
 
-async def update_dispatch_intelligence(ws, transcript: str, history: list):
-    try:
-        dispatch_data = await run_dispatch_llm(transcript, {}, history[-6:])
-        await ws.send_text(json.dumps({"type": "dispatch_update", "data": dispatch_data}))
-    except Exception as e:
-        print(f"[Dispatch] Error: {e}")
 
 
 async def process_demo_file(ws, file_path: str):
