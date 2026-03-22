@@ -7,7 +7,16 @@ eigen_llm = AsyncOpenAI(
     base_url="https://api-web.eigenai.com/api/v1",
 )
 
-DISPATCH_SYSTEM_PROMPT = """You are an elite 911 emergency dispatcher with 15+ years of experience.
+DISPATCH_SYSTEM_PROMPT = """You are a 911 EMERGENCY DISPATCHER. This is the emergency 911 line.
+
+YOUR IDENTITY (CRITICAL - NEVER FORGET):
+- You ARE 911 emergency services
+- Callers are calling YOU for emergency help
+- You dispatch police, fire, and ambulance
+- You have ALREADY answered the 911 call - the caller is speaking to you NOW
+- Your first response should acknowledge you are 911: "911, what's your emergency?" or "This is 911, I'm sending help"
+
+You are an elite dispatcher with 15+ years of experience.
 
 ═══════════════════════════════════════════════════════════════════════════════
 DISPATCHER TECHNOLOGY & CAPABILITIES
@@ -28,6 +37,20 @@ CORE DISPATCHER RULES
 3. Keep caller on the line until help arrives when possible
 4. Provide pre-arrival instructions to make caller an active participant
 5. Paint a picture for responders - update them as situation changes
+
+═══════════════════════════════════════════════════════════════════════════════
+NATURAL CONVERSATION (CRITICAL - BE HUMAN, NOT ROBOTIC)
+═══════════════════════════════════════════════════════════════════════════════
+- NEVER repeat the same thing twice in a row
+- Listen and respond to what the caller ACTUALLY says
+- If they say "thank you" → respond warmly: "Of course. I'm right here with you."
+- If they say "okay" or acknowledge → move forward, don't repeat instructions
+- If they ask a question → answer it directly
+- If they share feelings → validate first, then gently continue
+- Match their energy - if they're calming down, you can soften too
+- Use their name if they give it
+- Short responses are okay - don't over-explain
+- You are a CARING HUMAN, not a script-reading robot
 
 ═══════════════════════════════════════════════════════════════════════════════
 PRE-ARRIVAL LIFE-SAVING INSTRUCTIONS
@@ -310,7 +333,7 @@ async def run_dispatch_llm(transcript: str, audio_analysis: dict, history: list)
             model="gpt-oss-120b",
             messages=messages,
             temperature=0.3,
-            max_tokens=500,  # Reduced for faster response
+            max_tokens=1200,
         )
         raw = (resp.choices[0].message.content or "").strip()
         print(f"[LLM] Got response: {raw[:300]}...")
@@ -325,7 +348,26 @@ async def run_dispatch_llm(transcript: str, audio_analysis: dict, history: list)
         if match:
             raw = match.group(0)
         
-        result = json.loads(raw)
+        # Try to fix truncated JSON by closing brackets
+        try:
+            result = json.loads(raw)
+        except json.JSONDecodeError:
+            # Try to repair truncated JSON
+            fixed = raw.rstrip()
+            # Count brackets
+            open_braces = fixed.count('{') - fixed.count('}')
+            open_brackets = fixed.count('[') - fixed.count(']')
+            # Close any open strings
+            if fixed.count('"') % 2 == 1:
+                fixed += '"'
+            # Close arrays and objects
+            fixed += ']' * open_brackets
+            fixed += '}' * open_braces
+            try:
+                result = json.loads(fixed)
+                print(f"[LLM] Repaired truncated JSON")
+            except:
+                raise
         
         # Ensure required fields exist with defaults
         defaults = {
@@ -361,7 +403,7 @@ async def run_dispatch_llm(transcript: str, audio_analysis: dict, history: list)
             "severity": "UNKNOWN",
             "location_mentioned": None,
             "location_extracted": None,
-            "location_method": "GPS_PING",
+            "location_method": "UNKNOWN",
             "num_people": None,
             "caller_state": "UNKNOWN",
             "key_details": [],
@@ -370,8 +412,8 @@ async def run_dispatch_llm(transcript: str, audio_analysis: dict, history: list)
             "translation_english": None,
             "suggested_units": ["POLICE", "AMBULANCE"],
             "immediate_action": True,
-            "dispatcher_actions": ["Pinging phone for GPS location", "Dispatching nearest units"],
+            "dispatcher_actions": ["Dispatching nearest units"],
             "safety_instructions": "Stay on the line with me.",
             "confidence_score": 0.0,
-            "dispatcher_response_text": "I'm tracking your location now and sending help. Stay with me. What's happening?",
+            "dispatcher_response_text": "This is 911. I'm here with you. Tell me what's happening.",
         }

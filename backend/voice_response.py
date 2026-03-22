@@ -146,37 +146,110 @@ async def transcribe_eigen_asr(wav_bytes: bytes, language: str = None) -> str:
         return ""
 
 
+def build_tts_text(text: str, emotion: str = None) -> str:
+    """Build TTS text with Higgs 2.5 emotion tags."""
+    if emotion in ["urgent", "serious"]:
+        return f"<|higher_expressiveness|> [{emotion}] {text}"
+    elif emotion:
+        return f"[{emotion}] {text}"
+    return text
+
+
+async def synthesize_dispatcher_voice_stream(
+    text: str,
+    voice: str = "Linda",
+    emotion: str = None,
+    temperature: float = 0.5
+):
+    """
+    Stream TTS audio chunks using Eigen higgs2p5.
+    Yields audio chunks as they arrive for low-latency playback.
+    Uses multipart form data as per Eigen API docs.
+    """
+    if not text or not text.strip():
+        print("[TTS] Empty text, skipping")
+        return
+    
+    tts_text = build_tts_text(text, emotion)
+        
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            print(f"[TTS-STREAM] Calling Eigen API (emotion={emotion}, temp={temperature})")
+            print(f"[TTS-STREAM] Text: {tts_text[:100]}...")
+            
+            # Use multipart form data (like curl -F) NOT JSON
+            # Note: For proper multipart, we need to send files parameter
+            form_data = {
+                "model": (None, "higgs2p5"),
+                "text": (None, tts_text),
+                "voice": (None, voice),
+                "stream": (None, "true"),
+            }
+            
+            async with client.stream(
+                "POST",
+                f"{EIGEN_BASE}/generate",
+                headers={
+                    "Authorization": f"Bearer {EIGEN_API_KEY}",
+                },
+                files=form_data,  # Multipart form data
+            ) as response:
+                if response.status_code != 200:
+                    error_body = await response.aread()
+                    print(f"[TTS-STREAM] Error {response.status_code}: {error_body[:300]}")
+                    return
+                
+                print(f"[TTS-STREAM] Streaming started...")
+                async for chunk in response.aiter_bytes(chunk_size=1024):
+                    if chunk:
+                        yield chunk
+                        
+                print(f"[TTS-STREAM] Streaming complete")
+
+    except Exception as e:
+        print(f"[TTS-STREAM] Exception: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 async def synthesize_dispatcher_voice(
     text: str,
     voice: str = "Linda",
-    speed: float = 1.0
+    emotion: str = None,
+    temperature: float = 0.5
 ) -> bytes | None:
     """
-    Synthesize speech using Eigen higgs2p5.
-    Endpoint: POST /api/v1/generate with multipart form data.
-    Voices: Linda, Jack
+    Synthesize speech using Eigen higgs2p5 (non-streaming fallback).
     """
     if not text or not text.strip():
         print("[TTS] Empty text, skipping")
         return None
+    
+    tts_text = build_tts_text(text, emotion)
         
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
-            print(f"[TTS] Calling Eigen API: {EIGEN_BASE}/generate")
-            print(f"[TTS] Text: {text[:100]}...")
+            print(f"[TTS] Calling Eigen API: {EIGEN_BASE}/generate (emotion={emotion}, temp={temperature})")
+            print(f"[TTS] Text: {tts_text[:100]}...")
             
-            # Eigen TTS uses JSON format
+            payload = {
+                "model": "higgs2p5",
+                "text": tts_text,
+                "voice": voice,
+                "sampling": {
+                    "temperature": temperature,
+                    "top_p": 0.95,
+                    "top_k": 50,
+                },
+            }
+            
             response = await client.post(
                 f"{EIGEN_BASE}/generate",
                 headers={
                     "Authorization": f"Bearer {EIGEN_API_KEY}",
                     "Content-Type": "application/json",
                 },
-                json={
-                    "model": "higgs2p5",
-                    "text": text,
-                    "voice": voice,
-                },
+                json=payload,
             )
             
             print(f"[TTS] Status: {response.status_code}, bytes: {len(response.content)}")
@@ -186,7 +259,7 @@ async def synthesize_dispatcher_voice(
                 return None
             
             if len(response.content) < 100:
-                print(f"[TTS] Suspiciously small response: {response.text[:200]}")
+                print(f"[TTS] Suspiciously small audio response")
                 return None
             
             return response.content

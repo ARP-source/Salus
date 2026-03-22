@@ -25,7 +25,7 @@ app.add_middleware(
 )
 
 from dispatch_brain import run_dispatch_llm
-from voice_response import synthesize_dispatcher_voice, transcribe_eigen_asr
+from voice_response import synthesize_dispatcher_voice, synthesize_dispatcher_voice_stream, transcribe_eigen_asr
 
 
 class CallSession:
@@ -99,12 +99,35 @@ async def process_utterance(ws, session: CallSession, pcm_bytes: bytes):
 
         session.history.append({"role": "assistant", "content": response_text})
 
-        # TTS - generate voice response
-        print(f"[TTS] Synthesizing: {response_text!r}")
-        voice_bytes = await synthesize_dispatcher_voice(response_text)
+        # Determine emotion tag based on emergency type and caller state
+        severity = dispatch_data.get("severity", "UNKNOWN")
+        caller_state = dispatch_data.get("caller_state", "UNKNOWN")
+        emergency_type = dispatch_data.get("emergency_type", "UNKNOWN")
+        
+        # Map to Higgs 2.5 emotion tags
+        if severity == "CRITICAL" or emergency_type in ["MEDICAL", "FIRE"]:
+            emotion = "urgent"
+            temperature = 0.8  # More expressive for urgency
+        elif severity == "HIGH" or caller_state == "PANICKED":
+            emotion = "serious"
+            temperature = 0.7
+        elif caller_state in ["SUICIDAL", "CRYING", "IN_SHOCK"] or emergency_type == "MENTAL_HEALTH":
+            emotion = "gentle"  # Warm, caring tone
+            temperature = 0.6
+        else:
+            emotion = None
+            temperature = 0.5  # More stable for normal
+
+        # TTS - generate voice response (non-streaming for now - streaming returns raw PCM)
+        print(f"[TTS] Synthesizing (emotion={emotion}): {response_text!r}")
+        voice_bytes = await synthesize_dispatcher_voice(response_text, emotion=emotion, temperature=temperature)
         if voice_bytes:
             b64 = base64.b64encode(voice_bytes).decode("utf-8")
+            print(f"[WS] Sending voice_response ({len(voice_bytes)} bytes, {len(b64)} b64 chars)")
             await ws.send_text(json.dumps({"type": "voice_response", "data": b64}))
+            print(f"[WS] voice_response sent successfully")
+        else:
+            print(f"[TTS] No audio bytes returned")
 
     except Exception as e:
         traceback.print_exc()
