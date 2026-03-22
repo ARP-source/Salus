@@ -232,24 +232,23 @@ async def synthesize_dispatcher_voice(
             print(f"[TTS] Calling Eigen API: {EIGEN_BASE}/generate (emotion={emotion}, temp={temperature})")
             print(f"[TTS] Text: {tts_text[:100]}...")
             
-            payload = {
-                "model": "higgs2p5",
-                "text": tts_text,
-                "voice": voice,
-                "sampling": {
-                    "temperature": temperature,
-                    "top_p": 0.95,
-                    "top_k": 50,
-                },
-            }
-            
+            # Use multipart form-data (not JSON) as per Eigen API docs
             response = await client.post(
                 f"{EIGEN_BASE}/generate",
                 headers={
                     "Authorization": f"Bearer {EIGEN_API_KEY}",
-                    "Content-Type": "application/json",
                 },
-                json=payload,
+                data={
+                    "model": "higgs2p5",
+                    "text": tts_text,
+                    "voice": voice,
+                    "stream": "false",
+                    "sampling": json.dumps({
+                        "temperature": temperature,
+                        "top_p": 0.95,
+                        "top_k": 50,
+                    }),
+                },
             )
             
             print(f"[TTS] Status: {response.status_code}, bytes: {len(response.content)}")
