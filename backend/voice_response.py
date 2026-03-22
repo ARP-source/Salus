@@ -19,6 +19,31 @@ EIGEN_GEN_URL  = f"{EIGEN_BASE_URL}/generate"  # Used for both ASR and TTS
 
 # ── ASR ───────────────────────────────────────────────────────────────────────
 
+def _parse_sse_transcript(raw: str) -> str:
+    """
+    Parse SSE (Server-Sent Events) response from Eigen ASR.
+    The API returns lines like:
+      data: {"text": "Hello"}
+      data: {"text": " world"}
+    We extract and concatenate all text fields.
+    """
+    import json
+    transcript_parts = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if line.startswith("data:"):
+            payload = line[5:].strip()
+            if payload and payload != "[DONE]":
+                try:
+                    obj = json.loads(payload)
+                    if "text" in obj:
+                        transcript_parts.append(obj["text"])
+                except json.JSONDecodeError:
+                    # Not JSON, might be raw text
+                    transcript_parts.append(payload)
+    return "".join(transcript_parts).strip()
+
+
 async def transcribe_eigen_asr(wav_bytes: bytes, language: str | None = None) -> str:
     """
     Transcribe WAV using Eigen higgs_asr_3.
@@ -51,8 +76,9 @@ async def transcribe_eigen_asr(wav_bytes: bytes, language: str | None = None) ->
             print(f"[ASR] error body: {resp.text[:400]}")
             return ""
 
-        # Response is plain text transcript
-        result = resp.text.strip()
+        # Response may be SSE format — parse it
+        raw = resp.text
+        result = _parse_sse_transcript(raw) if raw.startswith("data:") else raw.strip()
         print(f"[ASR] transcript: {result[:120]}")
         return result
 
