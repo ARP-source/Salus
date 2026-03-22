@@ -7,9 +7,9 @@ interface AudioCaptureCallbacks {
 
 // ── VAD config ────────────────────────────────────────────────────────────────
 const SAMPLE_RATE       = 16000;
-const SILENCE_RMS       = 0.012;   // below this = silence
-const SILENCE_MS        = 1300;    // silence duration before utterance_end fires
-const MIN_SPEECH_MS     = 400;     // ignore blips shorter than this
+const SILENCE_RMS       = 0.005;   // lower threshold = capture more audio (was 0.012)
+const SILENCE_MS        = 2000;    // wait longer before utterance_end (was 1300)
+const MIN_SPEECH_MS     = 200;     // shorter minimum to not miss quick speech (was 400)
 const FRAME_SIZE        = 2048;    // samples per processing frame
 
 // ── int16 PCM helpers ─────────────────────────────────────────────────────────
@@ -135,10 +135,14 @@ export function useAudioCapture(callbacks: AudioCaptureCallbacks) {
             clearTimeout(vad.silenceTimer);
             vad.silenceTimer = null;
           }
-          // Stream PCM chunk to backend
+        }
+        
+        // Always send audio while speaking (including quiet parts)
+        if (vad.speaking) {
           onChunkRef.current(float32ToInt16Base64(buf));
+        }
 
-        } else if (vad.speaking && !vad.silenceTimer) {
+        if (silent && vad.speaking && !vad.silenceTimer) {
           // ── Just went silent — start countdown ────────────────────────────
           const speechDur = now - vad.speechStart;
           vad.silenceTimer = setTimeout(() => {

@@ -5,6 +5,8 @@ openai
 httpx
 pydantic
 soundfile
+torch
 torchaudio
+numpy
 websockets
 python-multipart
