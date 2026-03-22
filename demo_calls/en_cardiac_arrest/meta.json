@@ -1,0 +1,27 @@
+{
+  "name": "en_cardiac_arrest",
+  "language": "en",
+  "num_turns": 5,
+  "turns": [
+    {
+      "index": 0,
+      "text": "Hello?! Oh god, please help me — my husband just collapsed! He was just sitting there and then he fell off the chair and he's not moving, he's not breathing, please I don't know what to do—"
+    },
+    {
+      "index": 1,
+      "text": "We're at home, 4821 Maple Drive, please hurry, I don't — he's on the floor, he's completely limp—"
+    },
+    {
+      "index": 2,
+      "text": "Okay okay I'm on my knees, my hands are on his chest — like this? I'm pushing, is this right? How hard do I push?"
+    },
+    {
+      "index": 3,
+      "text": "I'm doing it, I'm counting — oh god he's not waking up, how long until they get here, please tell me they're coming—"
+    },
+    {
+      "index": 4,
+      "text": "I can hear the siren — I think I can hear them outside — should I stop? Should I go open the door?"
+    }
+  ]
+}

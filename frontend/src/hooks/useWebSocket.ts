@@ -23,21 +23,45 @@ export function useWebSocket(url: string) {
     const b64 = audioQueueRef.current.shift()!;
     playingRef.current = true;
 
-    // Detect format: WAV starts with "UklGR" (base64 of "RIFF")
-    const mime = b64.startsWith('UklGR') ? 'audio/wav' : 'audio/mpeg';
-    const audio = new Audio(`data:${mime};base64,${b64}`);
+    // Decode base64 to binary
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
-    audio.onended  = () => { playingRef.current = false; playNext(); };
-    audio.onerror  = (e) => {
-      console.warn('[Audio] Playback error, trying wav fallback', e);
-      // Try WAV if mp3 failed
-      const audio2 = new Audio(`data:audio/wav;base64,${b64}`);
-      audio2.onended = () => { playingRef.current = false; playNext(); };
-      audio2.onerror = () => { playingRef.current = false; playNext(); };
-      audio2.play().catch(() => { playingRef.current = false; playNext(); });
+    // Detect format from magic bytes: WAV='RIFF', MP3=0xFF or 'ID3'
+    const magic = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
+    const mime = magic === 'RIFF' ? 'audio/wav' : 'audio/mpeg';
+    console.log(`[Audio] Playing: ${bytes.length} bytes, magic="${magic}", mime=${mime}`);
+
+    // Use Blob URL (more reliable than data URL)
+    const blob = new Blob([bytes], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+      playingRef.current = false;
+      playNext();
+    };
+    audio.onerror = (e) => {
+      console.warn('[Audio] Playback error', e);
+      URL.revokeObjectURL(url);
+      // Try WAV mime if MP3 failed
+      if (mime === 'audio/mpeg') {
+        const blob2 = new Blob([bytes], { type: 'audio/wav' });
+        const url2 = URL.createObjectURL(blob2);
+        const audio2 = new Audio(url2);
+        audio2.onended = () => { URL.revokeObjectURL(url2); playingRef.current = false; playNext(); };
+        audio2.onerror = () => { URL.revokeObjectURL(url2); playingRef.current = false; playNext(); };
+        audio2.play().catch(() => { URL.revokeObjectURL(url2); playingRef.current = false; playNext(); });
+      } else {
+        playingRef.current = false;
+        playNext();
+      }
     };
     audio.play().catch((e) => {
       console.error('[Audio] Play failed:', e);
+      URL.revokeObjectURL(url);
       playingRef.current = false;
       playNext();
     });
@@ -76,10 +100,33 @@ export function useWebSocket(url: string) {
             case 'dispatch_update':
               setDispatchData(msg.data as DispatchResponse);
               break;
-            case 'voice_response':
-              audioQueueRef.current.push(msg.data as string);
+            case 'voice_response': {
+              const b64 = msg.data as string;
+              console.log(`[Audio] Received: ${b64.length} chars, starts=${b64.substring(0, 20)}`);
+              audioQueueRef.current.push(b64);
               playNext();
               break;
+            }
+            case 'caller_audio': {
+              // Play the simulated caller's voice through the browser
+              // so judges hear the panicked caller before Salus responds
+              const b64 = msg.data as string;
+              const turn = msg.turn as number;
+              const total = msg.total as number;
+              console.log(`[Caller] turn ${turn + 1}/${total}`);
+              
+              // Use a separate non-queued audio element so it plays immediately
+              // (doesn't go through the dispatcher audio queue)
+              const binary = atob(b64);
+              const bytes = new Uint8Array(binary.length);
+              for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+              const blob = new Blob([bytes], { type: 'audio/wav' });
+              const url = URL.createObjectURL(blob);
+              const audio = new Audio(url);
+              audio.onended = () => URL.revokeObjectURL(url);
+              audio.play().catch(e => console.warn('[Caller] play failed:', e));
+              break;
+            }
             case 'status':
               setStatusMsg(String(msg.data));
               break;

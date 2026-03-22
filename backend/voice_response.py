@@ -1,6 +1,6 @@
 """
 Voice services — Salus
-ASR: Boson Higgs Audio Understanding v3.5
+ASR: Eigen higgs_asr_3  (fast dedicated ASR — replaces slow Boson multimodal path)
 TTS: Eigen Higgs 2.5
 
 THE FIX: httpx data={} sends application/x-www-form-urlencoded.
@@ -9,111 +9,52 @@ Use files={} in httpx to force multipart — even for non-file fields.
 """
 import httpx
 import os
-import io
-import base64
-import soundfile as sf
-import numpy as np
-import torch
-import torchaudio
-from openai import AsyncOpenAI
 import traceback
 
-BOSONAI_API_KEY = os.environ.get("BOSONAI_API_KEY", "")
-EIGEN_API_KEY   = os.environ.get("EIGEN_API_KEY", "")
+EIGEN_API_KEY  = os.environ.get("EIGEN_API_KEY", "")
 
-BOSON_BASE_URL       = "https://hackathon.boson.ai/v1"
-BOSON_MODEL          = "higgs-audio-understanding-v3.5-Hackathon"
-BOSON_MODEL_FALLBACK = "higgs-audio-understanding-v3-Hackathon"
-EIGEN_TTS_URL        = "https://api-web.eigenai.com/api/v1/generate"
-
-STOP_SEQUENCES = [
-    "<|eot_id|>", "<|endoftext|>", "<|audio_eos|>", "<|im_end|>"
-]
-
-boson_client = AsyncOpenAI(
-    api_key=BOSONAI_API_KEY,
-    base_url=BOSON_BASE_URL,
-    timeout=60.0,
-)
+EIGEN_BASE_URL = "https://api-web.eigenai.com/api/v1"
+EIGEN_GEN_URL  = f"{EIGEN_BASE_URL}/generate"  # Used for both ASR and TTS
 
 
-# ── ASR helpers ───────────────────────────────────────────────────────────────
-
-async def chunk_audio_for_boson(wav_bytes: bytes) -> list[str]:
-    """Load WAV, mono-mix, resample to 16 kHz, split into ≤4 s b64 chunks."""
-    buf = io.BytesIO(wav_bytes)
-    waveform, sr = torchaudio.load(buf)
-
-    if waveform.shape[0] > 1:
-        waveform = torch.mean(waveform, dim=0, keepdim=True)
-
-    target_sr = 16000
-    if sr != target_sr:
-        waveform = torchaudio.transforms.Resample(sr, target_sr)(waveform)
-
-    wav_mono    = waveform[0]
-    max_samples = 4 * target_sr
-    chunks: list[str] = []
-    start = 0
-
-    while start < len(wav_mono):
-        end   = min(start + max_samples, len(wav_mono))
-        chunk = wav_mono[start:end]
-        if len(chunk) < 1600:
-            chunk = torch.nn.functional.pad(chunk, (0, 1600 - len(chunk)))
-        c_int16 = (chunk * 32767.0).clamp(-32768, 32767).numpy().astype(np.int16)
-        chunk_buf = io.BytesIO()
-        sf.write(chunk_buf, c_int16, target_sr, format="WAV", subtype="PCM_16")
-        chunks.append(base64.b64encode(chunk_buf.getvalue()).decode("utf-8"))
-        start = end
-
-    return chunks
-
+# ── ASR ───────────────────────────────────────────────────────────────────────
 
 async def transcribe_eigen_asr(wav_bytes: bytes, language: str | None = None) -> str:
-    """Transcribe WAV using Boson Higgs Audio Understanding v3.5."""
+    """
+    Transcribe WAV using Eigen higgs_asr_3.
+    Uses the same /api/v1/generate endpoint as TTS.
+    Eigen auto-resamples to 16kHz mono, so raw WAV bytes go straight through.
+    """
     try:
-        chunks = await chunk_audio_for_boson(wav_bytes)
-        print(f"[ASR] {len(chunks)} chunk(s) → Boson")
+        print(f"[ASR] {len(wav_bytes)} bytes → Eigen higgs_asr_3")
 
-        audio_parts = [
-            {"type": "audio_url", "audio_url": {"url": f"data:audio/wav_{i};base64,{b64}"}}
-            for i, b64 in enumerate(chunks)
-        ]
-
-        system_msg = (
-            "You are an ASR system for emergency 911 calls. "
-            "Transcribe speech accurately even through panic, crying, or noise. "
-            "Output ONLY the spoken words as plain text."
-        )
-        user_text = "Transcribe the audio exactly as spoken."
+        # higgs_asr_3 uses /generate with: model + file + optional language
+        fields: dict = {
+            "model": (None, "higgs_asr_3"),
+        }
         if language:
-            user_text += f" Language: {language}."
+            fields["language"] = (None, language)
 
-        messages = [
-            {"role": "system", "content": system_msg},
-            {"role": "user", "content": [{"type": "text", "text": user_text}] + audio_parts},
-        ]
+        # audio file field name is "file" per Eigen docs
+        fields["file"] = ("audio.wav", wav_bytes, "audio/wav")
 
-        for model in [BOSON_MODEL, BOSON_MODEL_FALLBACK]:
-            try:
-                resp = await boson_client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    stop=STOP_SEQUENCES,
-                    extra_body={"skip_special_tokens": False},
-                    temperature=0.2,
-                    top_p=0.9,
-                    max_tokens=2048,
-                )
-                result = (resp.choices[0].message.content or "").strip()
-                print(f"[ASR] transcript: {result[:120]}")
-                return result
-            except Exception as e:
-                print(f"[ASR] {model} failed: {e}")
-                continue
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                EIGEN_GEN_URL,
+                headers={"Authorization": f"Bearer {EIGEN_API_KEY}"},
+                files=fields,
+            )
 
-        return ""
+        print(f"[ASR] status={resp.status_code}")
+
+        if resp.status_code != 200:
+            print(f"[ASR] error body: {resp.text[:400]}")
+            return ""
+
+        # Response is plain text transcript
+        result = resp.text.strip()
+        print(f"[ASR] transcript: {result[:120]}")
+        return result
 
     except Exception as e:
         traceback.print_exc()
@@ -124,10 +65,8 @@ async def transcribe_eigen_asr(wav_bytes: bytes, language: str | None = None) ->
 # ── TTS ───────────────────────────────────────────────────────────────────────
 
 def build_tts_text(text: str, emotion: str | None) -> str:
-    if emotion in ("urgent", "serious"):
-        return f"<|higher_expressiveness|> [{emotion}] {text}"
-    if emotion:
-        return f"[{emotion}] {text}"
+    # Do NOT inject text tags — Higgs 2.5 reads them aloud literally.
+    # Expressiveness is controlled via the temperature parameter only.
     return text
 
 
@@ -148,7 +87,7 @@ async def synthesize_dispatcher_voice(
         return None
 
     tts_text = build_tts_text(text, emotion)
-    print(f"[TTS] synthesize | voice={voice} emotion={emotion} | {tts_text[:80]}")
+    print(f"[TTS] synthesize | voice={voice} emotion={emotion} temp={temperature} | {tts_text[:80]}")
 
     # Build multipart payload using httpx files= (forces multipart/form-data)
     # Each field: (filename, value, content-type) — use None filename for plain fields
@@ -163,7 +102,7 @@ async def synthesize_dispatcher_voice(
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
             resp = await client.post(
-                EIGEN_TTS_URL,
+                EIGEN_GEN_URL,
                 headers={"Authorization": f"Bearer {EIGEN_API_KEY}"},
                 files=multipart,
             )
@@ -183,7 +122,7 @@ async def synthesize_dispatcher_voice(
                 print(f"[TTS] unexpected magic bytes: {magic.hex()} — response: {resp.text[:200]}")
                 return None
 
-            print(f"[TTS] audio OK — {len(resp.content)} bytes, magic={magic.hex()}")
+            print(f"[TTS] audio OK — {len(resp.content)} bytes, magic={magic.hex()}, first50={resp.content[:50]}")
             return resp.content
 
         except Exception as e:
@@ -220,7 +159,7 @@ async def synthesize_dispatcher_voice_stream(
         async with httpx.AsyncClient(timeout=60.0) as client:
             async with client.stream(
                 "POST",
-                EIGEN_TTS_URL,
+                EIGEN_GEN_URL,
                 headers={"Authorization": f"Bearer {EIGEN_API_KEY}"},
                 files=multipart,
             ) as resp:
@@ -234,8 +173,12 @@ async def synthesize_dispatcher_voice_stream(
                     return
 
                 print("[TTS-STREAM] streaming started")
+                first_chunk = True
                 async for chunk in resp.aiter_bytes(8192):
                     if chunk:
+                        if first_chunk:
+                            print(f"[TTS-STREAM] first chunk: {len(chunk)} bytes, magic={chunk[:4].hex()}")
+                            first_chunk = False
                         yield chunk
 
     except Exception as e:

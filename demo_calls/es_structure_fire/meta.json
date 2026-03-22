@@ -1,0 +1,27 @@
+{
+  "name": "es_structure_fire",
+  "language": "es",
+  "num_turns": 5,
+  "turns": [
+    {
+      "index": 0,
+      "text": "¡Ayuda! ¡Por favor ayúdenme! ¡Hay un incendio en mi edificio, en el tercer piso! ¡Hay humo por todos lados, no puedo salir!"
+    },
+    {
+      "index": 1,
+      "text": "¡Estoy en el apartamento 3C! ¡Hay una señora mayor en el 3A que no puede caminar, alguien tiene que ayudarla!"
+    },
+    {
+      "index": 2,
+      "text": "Sí, cerré la puerta. Hay humo por debajo... ¿qué hago? ¡Tengo miedo, tengo a mi bebé conmigo!"
+    },
+    {
+      "index": 3,
+      "text": "Estoy en la ventana, puedo ver la calle. ¿Ya vienen los bomberos? Mi bebé está llorando—"
+    },
+    {
+      "index": 4,
+      "text": "¡Los veo! ¡Aquí, estoy aquí en la ventana! ¡Los estoy viendo!"
+    }
+  ]
+}

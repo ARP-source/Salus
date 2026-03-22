@@ -6,11 +6,13 @@ interface AudioCaptureCallbacks {
 }
 
 // ── VAD config ────────────────────────────────────────────────────────────────
-const SAMPLE_RATE       = 16000;
-const SILENCE_RMS       = 0.008;   // balanced threshold
-const SILENCE_MS        = 700;     // 700ms silence = utterance end (fast response)
-const MIN_SPEECH_MS     = 150;     // capture short utterances
-const FRAME_SIZE        = 2048;    // samples per processing frame
+// SILENCE_RMS: Raise to 0.025 or 0.035 if your background is particularly loud
+const SAMPLE_RATE           = 16000;
+const SILENCE_RMS           = 0.018;  // raised from 0.008 — HVAC/fan/keyboard noise fix
+const SILENCE_MS            = 350;    // 350ms silence = utterance end
+const MIN_SPEECH_MS         = 200;    // raised from 100ms — discard <200ms as noise
+const FRAME_SIZE            = 1024;   // smaller frames = lower latency
+const SPEECH_CONFIRM_FRAMES = 3;      // require 3 consecutive loud frames before speech starts
 
 // ── int16 PCM helpers ─────────────────────────────────────────────────────────
 function float32ToInt16Base64(float32: Float32Array): string {
@@ -56,6 +58,7 @@ export function useAudioCapture(callbacks: AudioCaptureCallbacks) {
     speaking: false,
     speechStart: 0,
     silenceTimer: null as ReturnType<typeof setTimeout> | null,
+    loudFrames: 0,  // consecutive loud frames counter
   });
 
   const stopRecording = useCallback(() => {
@@ -108,8 +111,9 @@ export function useAudioCapture(callbacks: AudioCaptureCallbacks) {
       processorRef.current = processor;
 
       const vad = vadRef.current;
-      vad.speaking   = false;
+      vad.speaking    = false;
       vad.speechStart = 0;
+      vad.loudFrames  = 0;
       if (vad.silenceTimer) clearTimeout(vad.silenceTimer);
       vad.silenceTimer = null;
 
@@ -124,9 +128,12 @@ export function useAudioCapture(callbacks: AudioCaptureCallbacks) {
         const now = Date.now();
 
         if (!silent) {
-          // ── Speech frame ──────────────────────────────────────────────────
-          if (!vad.speaking) {
-            vad.speaking   = true;
+          // ── Loud frame ────────────────────────────────────────────────────
+          vad.loudFrames++;
+          
+          // Require SPEECH_CONFIRM_FRAMES consecutive loud frames before speech starts
+          if (!vad.speaking && vad.loudFrames >= SPEECH_CONFIRM_FRAMES) {
+            vad.speaking    = true;
             vad.speechStart = now;
             setIsSpeaking(true);
           }
@@ -135,6 +142,9 @@ export function useAudioCapture(callbacks: AudioCaptureCallbacks) {
             clearTimeout(vad.silenceTimer);
             vad.silenceTimer = null;
           }
+        } else {
+          // ── Silent frame — decay loudFrames counter ───────────────────────
+          if (vad.loudFrames > 0) vad.loudFrames--;
         }
         
         // Always send audio while speaking (including quiet parts)
